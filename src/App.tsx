@@ -1,0 +1,194 @@
+
+import React, { useState, useEffect } from 'react';
+import { AppState, GameData, Team, Format, MatchResult } from './types';
+import { PLAYERS, TEAMS, GROUNDS, PRE_BUILT_SQUADS, INITIAL_SPONSORSHIPS, INITIAL_NEWS, generateLeagueSchedule } from './data';
+import { LoadingSpinner } from './utils';
+
+// Components
+import { MainMenu, TeamSelection } from './components/GameComponents';
+import CareerHub from './components/CareerHub';
+
+export const App = () => {
+  const [appState, setAppState] = useState<AppState>('MAIN_MENU');
+  const [gameData, setGameData] = useState<GameData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [hasSaveData, setHasSaveData] = useState(false);
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('cricketManagerTheme') || 'dark';
+    setTheme(savedTheme as 'light' | 'dark');
+    const savedGame = localStorage.getItem('cricketManagerSave');
+    if (savedGame) {
+        setHasSaveData(true);
+    }
+    setIsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (theme === 'light') {
+        document.documentElement.classList.remove('dark');
+    } else {
+        document.documentElement.classList.add('dark');
+    }
+    localStorage.setItem('cricketManagerTheme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (gameData && !isLoading) {
+      localStorage.setItem('cricketManagerSave', JSON.stringify(gameData));
+      setHasSaveData(true);
+    }
+  }, [gameData, isLoading]);
+
+  const showFeedback = (text: string, type: 'success' | 'error' = 'success') => {
+    setFeedbackMessage({ text, type });
+    setTimeout(() => setFeedbackMessage(null), 2500);
+  };
+
+  const saveGame = () => { showFeedback("Progress is saved automatically!"); };
+
+  const loadGame = () => {
+    if (window.confirm("Loading a saved game will overwrite your current unsaved progress. Continue?")) {
+        const savedGame = localStorage.getItem('cricketManagerSave');
+        if (savedGame) {
+            try {
+                setGameData(JSON.parse(savedGame));
+                showFeedback("Game Loaded!", "success");
+                setAppState('CAREER_HUB');
+            } catch (e) {
+                console.error("Failed to parse saved game data during load:", e);
+                localStorage.removeItem('cricketManagerSave');
+                setHasSaveData(false);
+                showFeedback("Failed to load saved game. It may be corrupt.", "error");
+            }
+        } else {
+            showFeedback("No saved game found.", "error");
+        }
+    }
+  };
+
+  const resumeGame = () => {
+    const savedGame = localStorage.getItem('cricketManagerSave');
+    if (savedGame) {
+        try {
+            setGameData(JSON.parse(savedGame));
+            setAppState('CAREER_HUB');
+            showFeedback("Game Resumed!", "success");
+        } catch(e) {
+            console.error("Failed to parse saved game data:", e);
+            localStorage.removeItem('cricketManagerSave');
+            setHasSaveData(false);
+            showFeedback("Failed to load saved game. It may be corrupt.", "error");
+        }
+    }
+  };
+
+  const handleStartNewGame = () => {
+    if (hasSaveData && !window.confirm("Starting a new game will overwrite your saved progress. Are you sure?")) {
+        return;
+    }
+    setAppState('TEAM_SELECTION');
+  };
+
+  const initializeNewGame = (userTeamId: string) => {
+    setIsLoading(true);
+    const allPlayers = PLAYERS.map(p => JSON.parse(JSON.stringify(p)));
+    const initialTeamsData = [...TEAMS];
+    const allPlayersById = new Map(allPlayers.map(p => [p.id, p]));
+
+    const initialTeams: Team[] = initialTeamsData.map(teamData => {
+        const squadPlayerIds = PRE_BUILT_SQUADS[teamData.id];
+        if (!squadPlayerIds) {
+             return { id: teamData.id, name: teamData.name, squad: [], captains: {} };
+        }
+        const squad = squadPlayerIds.map(playerId => {
+            const player = allPlayersById.get(playerId);
+            if (!player) return null;
+            return JSON.parse(JSON.stringify(player));
+        }).filter(Boolean) as any; 
+        return { id: teamData.id, name: teamData.name, squad: squad, captains: {} };
+    });
+
+    const initialStandings = (teams: Team[]) => teams.map(team => ({ 
+        teamId: team.id, teamName: team.name, played: 0, won: 0, lost: 0, drawn: 0, points: 0, netRunRate: 0, runsFor: 0, runsAgainst: 0 
+    }));
+
+    const mainTeams = initialTeams.filter((t, i) => !initialTeamsData[i].isDevelopmentTeam);
+    const devTeams = initialTeams.filter((t, i) => initialTeamsData[i].isDevelopmentTeam);
+
+    const schedules = {
+        [Format.T20]: generateLeagueSchedule(mainTeams, Format.T20),
+        [Format.ODI]: generateLeagueSchedule(mainTeams, Format.ODI),
+        [Format.FIRST_CLASS]: generateLeagueSchedule(mainTeams, Format.FIRST_CLASS),
+        [Format.DEVELOPMENT_T20]: generateLeagueSchedule(devTeams, Format.DEVELOPMENT_T20),
+        [Format.DEVELOPMENT_ODI]: generateLeagueSchedule(devTeams, Format.DEVELOPMENT_ODI),
+        [Format.DEVELOPMENT_FIRST_CLASS]: generateLeagueSchedule(devTeams, Format.DEVELOPMENT_FIRST_CLASS),
+        [Format.RISE_T20]: generateLeagueSchedule(devTeams, Format.RISE_T20),
+        [Format.RISE_ODI]: generateLeagueSchedule(devTeams, Format.RISE_ODI),
+        [Format.RISE_FIRST_CLASS]: generateLeagueSchedule(devTeams, Format.RISE_FIRST_CLASS),
+    };
+
+    const newGameData: GameData = {
+      userTeamId,
+      teams: initialTeams,
+      grounds: [...GROUNDS],
+      allTeamsData: initialTeamsData,
+      allPlayers,
+      schedule: schedules,
+      currentMatchIndex: { [Format.T20]: 0, [Format.ODI]: 0, [Format.FIRST_CLASS]: 0, [Format.DEVELOPMENT_T20]: 0, [Format.DEVELOPMENT_ODI]: 0, [Format.DEVELOPMENT_FIRST_CLASS]: 0, [Format.RISE_T20]: 0, [Format.RISE_ODI]: 0, [Format.RISE_FIRST_CLASS]: 0 },
+      standings: { [Format.T20]: initialStandings(mainTeams), [Format.ODI]: initialStandings(mainTeams), [Format.FIRST_CLASS]: initialStandings(mainTeams), [Format.DEVELOPMENT_T20]: initialStandings(devTeams), [Format.DEVELOPMENT_ODI]: initialStandings(devTeams), [Format.DEVELOPMENT_FIRST_CLASS]: initialStandings(devTeams), [Format.RISE_T20]: initialStandings(devTeams), [Format.RISE_ODI]: initialStandings(devTeams), [Format.RISE_FIRST_CLASS]: initialStandings(devTeams) },
+      matchResults: Object.values(Format).reduce((acc, format) => { acc[format] = []; return acc; }, {} as Record<Format, MatchResult[]>),
+      playingXIs: {},
+      currentSeason: 1,
+      currentFormat: Format.T20, 
+      awardsHistory: [],
+      scoreLimits: {},
+      records: { batterVsBowler: [], teamVsTeam: [], playerVsTeam: [] },
+      promotionHistory: [],
+      popularity: 50,
+      sponsorships: INITIAL_SPONSORSHIPS,
+      news: INITIAL_NEWS,
+      activeMatch: null,
+    };
+    setGameData(newGameData);
+    setAppState('CAREER_HUB');
+    setIsLoading(false);
+  };
+
+  const resetGame = () => {
+      if (window.confirm("Are you sure you want to reset all progress? This action cannot be undone.")) {
+          localStorage.removeItem('cricketManagerSave');
+          setGameData(null);
+          setAppState('MAIN_MENU');
+          setHasSaveData(false);
+          showFeedback("Game Reset Successfully.", "success");
+      }
+  };
+
+  const renderContent = () => {
+    if (isLoading) {
+        return <div className="bg-white dark:bg-gray-900 h-full flex items-center justify-center"><LoadingSpinner /></div>;
+    }
+    switch(appState) {
+        case 'MAIN_MENU': return <MainMenu onStartNewGame={handleStartNewGame} onResumeGame={resumeGame} hasSaveData={hasSaveData} />;
+        case 'TEAM_SELECTION': return <TeamSelection onTeamSelected={initializeNewGame} theme={theme} />;
+        case 'CAREER_HUB':
+            if (gameData) return <CareerHub gameData={gameData} setGameData={setGameData} onResetGame={resetGame} theme={theme} setTheme={setTheme} saveGame={saveGame} loadGame={loadGame} showFeedback={showFeedback} />;
+            setAppState('MAIN_MENU'); return null;
+        default: return <div>Unknown App State</div>;
+    }
+  }
+
+  return (
+    <div className="bg-gray-100 dark:bg-gray-900 min-h-screen flex items-center justify-center font-sans">
+      <div className="w-full max-w-md h-screen max-h-[932px] bg-gray-50 dark:bg-[#2C3531] border-4 border-gray-300 dark:border-gray-700 rounded-[60px] shadow-2xl shadow-black/50 overflow-hidden relative text-gray-900 dark:text-gray-200 flex flex-col">
+        {renderContent()}
+        {feedbackMessage && (
+            <div className={`absolute bottom-28 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg z-50 shadow-lg text-white font-semibold ${feedbackMessage.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>{feedbackMessage.text}</div>
+        )}
+      </div>
+    </div>
+  );
+};

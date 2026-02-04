@@ -1,0 +1,11 @@
+
+{
+  "name": "Sike's Cricket Manager 25",
+  "short_name": "SCM 25",
+  "description": "Sike's Cricket Manager 25 - Manage your team to glory!",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": []
+}
